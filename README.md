@@ -1,3 +1,6 @@
+# UPDATES
+A pip installable version of the code as well as a full set of tutorials is currently under construction. Updated code and documentation will be available soon!
+
 # What Is This?
 This is a released version of the research code for the *ADAPT* paper found at: https://arxiv.org/abs/2509.24115 . The website associated with this project can be found at: https://evandramko.github.io/ADAPT_webpage/ . 
 
@@ -5,10 +8,8 @@ We present a machine learning force field (MLFF) architecture that does not use 
 
 The core focus of this project is force predictions, and the development of the code reflects this. We believe that the model is best used a pre-processing step prior to a DFT relaxation. While we acheive low error in force predictions, compounding errors across steps can still create inaccurate final positions when using directly for a full relaxation. 
 
-Please note: this is research code only. A production-level release is intended with an upcoming derivitive work. Please use accordingly. 
-
 # Task Description
-Our study focuses on silicon crystals with defects. Defects may be simple (substitutional, vacancy) or more complex combinations thereof. Starting from unstable structures, our MLFF emulates the force and energy predictions of density functional theory (DFT). While less precise than first-principles methods, our model requires only fractions of a second per step—compared to ~15 minutes per step for DFT. We also provide code for generating complete relaxation trajectories using the MLFF.
+Our study focuses on silicon crystals with defects. Defects may be simple (substitutional, interstitial, vacancy) or more complex combinations thereof. Starting from unstable structures, our MLFF emulates the force and energy predictions of density functional theory (DFT). While less precise than first-principles methods, our model requires only fractions of a second per step—compared to ~15 minutes per step for DFT. We also provide code for generating complete relaxation trajectories using the MLFF.
 The workflow has two main components:
 
 (1) MLFF predictions: Given an atomic structure, the model estimates the forces acting on each atom.

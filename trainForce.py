@@ -54,12 +54,12 @@ if __name__ == "__main__":
 
     print("Network structure is: ")
     print(MLFF)
-    # Check if the pretrainPath exists and is not None
+    # Check if the pretrainPath exists
     if (model_hyperparam.ModelPaths.pretrainPath != None):
         MLFF.load_state_dict(torch.load(model_hyperparam.ModelPaths.pretrainPath, map_location=torch.device(device), weights_only=True))
         print(f"Successfully loaded pretrained model from: {model_hyperparam.ModelPaths.pretrainPath}")
     else:
-        print("No pretrained path provided. Starting with a fresh model.")
+        print("No pretrained path provided. Starting with a randomly initialized model.")
 
 
     # set hyperparameters:
@@ -122,9 +122,6 @@ if __name__ == "__main__":
     optimizer = model_hyperparam.TrainConfig.optimizer(MLFF.parameters(), lr=model_hyperparam.TrainConfig.lr)
 
     # ------ run the model training ------
-    # create storage mediums for training and test loss
-    testLossRes = []
-    trainLoss = []
     # run training for given epochs
     for t in range(epochs):
         print(f"------------------------ Epoch {t+1}/{epochs} ------------------------")
