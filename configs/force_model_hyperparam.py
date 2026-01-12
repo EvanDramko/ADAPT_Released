@@ -21,6 +21,7 @@ class DataConfig:
     has_Z: bool = False # check as True if element 4 (index 3) is the atomic number. Otherwise, it is assumed indices 3, 4 are column and row of periodic table
     batch_size: int = 64
     num_workers: int = 4 # used in the dataloader... only change if necessary. 
+    atom_vec_length: int = 12 # how many features (including three coordinates) are used to describe each atom. (Ex: |(x, y, z, Z)| = 4)
 
 
 @dataclass(frozen=True)

@@ -231,7 +231,7 @@ def fit_stats_from_ragged(X_list: List[torch.Tensor], Y_list: List[torch.Tensor]
     Y_stack = concat_ragged(Y_list)  # (N_y, d_y=3)
     x_mean, x_std = X_stack.mean(0), X_stack.std(0, unbiased=False).clamp_min(1e-8)
     y_mean, y_std = Y_stack.mean(0), Y_stack.std(0, unbiased=False).clamp_min(1e-8)
-    return {"x_mean": x_mean, "x_std": x_std, "y_mean": y_mean, "y_std": y_std}
+    return {"x_mean": x_mean, "x_std": x_std, "y_mean_force": y_mean, "y_std_force": y_std}
 
 # ---------- apply your utils.normalizer.normalize_all ----------
 @torch.no_grad()

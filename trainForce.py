@@ -73,26 +73,46 @@ if __name__ == "__main__":
     train_ds = RaggedAtomDataset(from_path=model_hyperparam.DataConfig.train_path)
     test_ds  = RaggedAtomDataset(from_path=model_hyperparam.DataConfig.test_path)
 
-    # load saved normalization stats
+    # load or extend normalization stats
     stats_path = model_hyperparam.ModelPaths.stats_path
+    required_keys = {"x_mean", "x_std", "y_mean_force", "y_std_force"}
+
     if os.path.exists(stats_path):
-        # Case 1: File exists, load it
         stats = torch.load(stats_path, map_location="cpu")
-        print(f"Loaded normalization stats from {stats_path}")
+        if not isinstance(stats, dict):
+            raise TypeError(f"Stats file at {stats_path} is not a python dict")
+
+        missing_keys = required_keys - stats.keys()
+        if missing_keys:
+            warnings.warn(
+                f"Stats file at {stats_path} is missing keys {missing_keys}. "
+                f"Computing and adding them."
+            )
+
+            # compute full stats ONCE
+            new_stats = normalizer.fit_stats_from_ragged(train_ds.X_list, train_ds.Y_list)
+            # only add the missing keys
+            for k in missing_keys:
+                stats[k] = new_stats[k]
+            torch.save(stats, stats_path)
+        else:
+            print(f"Loaded normalization stats from {stats_path}")
+
     else:
-        # Case 2: File does not exist, create it and warn
         stats = normalizer.fit_stats_from_ragged(train_ds.X_list, train_ds.Y_list)
         torch.save(stats, stats_path)
         warnings.warn(f"Stats file not found at {stats_path}. Created new stats file from training data.")
 
+
+
     # normalize both splits using the same stats
     train_X_norm, train_Y_norm = normalizer.normalize_ragged_with_stats(
         train_ds.X_list, train_ds.Y_list,
-        stats["x_mean"], stats["x_std"], stats["y_mean"], stats["y_std"],
+        stats["x_mean"], stats["x_std"], stats["y_mean_force"], stats["y_std_force"],
     )
     test_X_norm, test_Y_norm = normalizer.normalize_ragged_with_stats(
         test_ds.X_list, test_ds.Y_list,
-        stats["x_mean"], stats["x_std"], stats["y_mean"], stats["y_std"],
+        stats["x_mean"], stats["x_std"], stats["y_mean_force"], stats["y_std_force"],
     )
 
     # wrap normalized lists in fresh Dataset objects

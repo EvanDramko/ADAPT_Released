@@ -42,7 +42,7 @@ if __name__ == "__main__":
         g.manual_seed(42)
     # ====================================================
 
-    # Create an instance of the TransformerEncoder
+    # Create an instance of the energy residual mlp
     MLFF = energyMLFF.nrgMLP(energy_model_hyperparams.ModelConfig(energy_model_hyperparams.DataConfig()).dimensions_list).to(device)
     print("Network structure is: ")
     print(MLFF)
@@ -97,36 +97,54 @@ if __name__ == "__main__":
     elif(energyTrain.ndim > 1) or (energyTest.ndim > 1):
         raise Exception("Energy values should be a single value for the whole structure.")
 
-
-    # load saved normalization stats
-    stats_path = energy_model_hyperparams.ModelPaths.stats_path
-    if os.path.exists(stats_path):
-        # Case 1: File exists, load it
-        stats = torch.load(stats_path, map_location="cpu")
-        print(f"Loaded normalization stats from {stats_path}")
-        meanX = stats["meanX"]
-        stdX = stats["stdX"]
-        meanY = stats["meanY"]
-        stdY = stats["stdY"]
-    else:
-        # Case 2: File does not exist, create it and warn
-        meanX = X_train[:, :, :].mean(dim=(0, 1), keepdim=True)
-        stdX  = X_train[:, :, :].std(dim=(0, 1), keepdim=True)
+    def _makeStats(X_train, energyTrain):
+        meanX = X_train.mean(dim=(0, 1), keepdim=True)
+        stdX  = X_train.std(dim=(0, 1), keepdim=True)
         meanY = energyTrain.mean(dim=0, keepdim=True)
         stdY  = energyTrain.std(dim=0, keepdim=True)
-        stats = {
-            "meanX": meanX.detach().cpu(),
-            "stdX": stdX.detach().cpu(),
-            "meanY": meanY.detach().cpu(),
-            "stdY": stdY.detach().cpu(),
+        return {
+            "x_mean": meanX.detach().cpu(),
+            "x_std": stdX.detach().cpu(),
+            "y_mean_energy": meanY.detach().cpu(),
+            "y_std_energy": stdY.detach().cpu(),
         }
+
+    # load or extend normalization stats (without dropping existing keys)
+    stats_path = energy_model_hyperparams.ModelPaths.stats_path
+    required_keys = {"x_mean", "x_std", "y_mean_energy", "y_std_energy"}
+
+    if os.path.exists(stats_path):
+        stats = torch.load(stats_path, map_location="cpu")
+        if not isinstance(stats, dict):
+            raise TypeError(f"Stats file at {stats_path} is not a dict (got {type(stats)})")
+
+        # treat missing OR invalid entries as needing refresh
+        missing = required_keys - stats.keys()
+
+        if missing:
+            warnings.warn(
+                f"Stats file at {stats_path} is missing/invalid keys {missing}. "
+                f"Computing and adding them (preserving existing keys)."
+            )
+            new_stats = _makeStats(X_train, energyTrain)
+            for k in missing:
+                stats[k] = new_stats[k]
+            torch.save(stats, stats_path)
+        else:
+            print(f"Loaded normalization stats from {stats_path}")
+    else:
+        stats = _makeStats(X_train, energyTrain)
         torch.save(stats, stats_path)
         warnings.warn(f"Stats file not found at {stats_path}. Created new stats file from training data.")
 
-    X_train = utils.normalizer.normalize_all(0, X_train, mean=meanX, std=stdX)
-    X_test  = utils.normalizer.normalize_all(0, X_test, mean=meanX, std=stdX)
-    y_train  = utils.normalizer.normalize_all(1, energyTrain, mean=meanY, std=stdY)
-    y_test  = utils.normalizer.normalize_all(1, energyTest, mean=meanY, std=stdY)
+    if energy_model_hyperparams.DataConfig.stats_has_weighting:
+        X_train = utils.normalizer.normalize_all(0, X_train, mean=stats["x_mean"][..., :-1], std=stats["x_std"][..., :-1])
+        X_test  = utils.normalizer.normalize_all(0, X_test, mean=stats["x_mean"][..., :-1], std=stats["x_std"][..., :-1])
+    else:
+        X_train = utils.normalizer.normalize_all(0, X_train, mean=stats["x_mean"], std=stats["x_std"])
+        X_test  = utils.normalizer.normalize_all(0, X_test, mean=stats["x_mean"], std=stats["x_std"])       
+    y_train  = utils.normalizer.normalize_all(1, energyTrain, mean=stats["y_mean_energy"], std=stats["y_std_energy"])
+    y_test  = utils.normalizer.normalize_all(1, energyTest, mean=stats["y_mean_energy"], std=stats["y_std_energy"])
 
 
     # add padding to get to size (max_atoms, vec_rep_length) for each of the four data component and create Dataset objects
