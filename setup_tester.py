@@ -1,5 +1,6 @@
 import torch
 import inference_time_calcs
+from configs import force_model_hyperparam, energy_model_hyperparams
 
 def test_torch_backend():
     assert torch.__version__ is not None
@@ -54,9 +55,10 @@ if __name__ == "__main__":
     test_run = inference_time_calcs.Runner(hasWeighting=True)
 
     # run each method once
-    x = torch.rand((2, 217, 12))
+    x = torch.rand((2, 20, force_model_hyperparam.DataConfig.atom_vec_length))
     z = test_run.getOneStepForces(x)
-    print(f"Predicted forces shape is: {z.shape}, should be: (2, 217, 3)")
+    print(f"Predicted forces shape is: {z.shape}, should be: (2, 20, 3)")
+    x = torch.rand((2, energy_model_hyperparams.DataConfig.max_atoms, energy_model_hyperparams.DataConfig.atom_vec_length))
     z = test_run.getStructEnergy(x)
     print(f"Predicted energy shape is: {z.shape}, should be: (2, 1)")
 

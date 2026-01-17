@@ -11,7 +11,7 @@ def _require(cond: bool, msg: str, exc=ValueError):
         raise exc(msg)
 
 class Runner:
-    def __init__(self, use_force = True, use_energy = True, hasWeighting = False):
+    def __init__(self, use_force = True, use_energy = True, hasWeighting = force_model_hyperparam.DataConfig.has_weighting):
         self.device = (torch.device("cuda:0") if torch.cuda.is_available() else torch.device("mps:0") if torch.backends.mps.is_available() else torch.device("cpu"))
 
         # load models
@@ -114,11 +114,12 @@ class Runner:
 
         # get energy prediction
         forcesPred = self.force_model(normedStruct)
+        print("Force pred shape is: ", forcesPred.shape)
 
         # un-normalize the prediction
-        unnormStruct = utils.normalizer.unnormalize_all(1, forcesPred, self.meanY_force, self.stdY_force)
+        unnormedForces = utils.normalizer.unnormalize_all(1, forcesPred, self.meanY_force, self.stdY_force)
 
-        return unnormStruct
+        return unnormedForces
 
 
 # def loop2Convergence(structure, getForces = model, step=0.05, annealFactor=0.99, momemWeight=0.00, threshold=0.001, maxSteps = 75, saveFrames = None): 

@@ -23,7 +23,7 @@ class ModelConfig:
     data: DataConfig
 
     @property
-    def dimensions_list(self) -> List[int]:   # or List[int] if on <=3.8
+    def dimensions_list(self) -> List[int]: 
         return [self.data.max_atoms * self.data.atom_vec_length, 4096, 4096, 4096, 4096, 128, 1]
 
 

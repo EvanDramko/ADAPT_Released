@@ -41,7 +41,7 @@ def translateZ(tens, distance):
 
 def randomTranslate(data):
     # Set box boundaries. Be careful in non-square "boxes" the order in which you translate data
-    WIDTH = 10 # value can be larger than the box boundary, because the modulo division will always shrink it down
+    WIDTH = 10
     shift_x = random.uniform(0, WIDTH) 
     shift_y = random.uniform(0, WIDTH)
     shift_z = random.uniform(0, WIDTH)

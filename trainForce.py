@@ -145,8 +145,13 @@ if __name__ == "__main__":
     # run training for given epochs
     for t in range(epochs):
         print(f"------------------------ Epoch {t+1}/{epochs} ------------------------")
-        train(train_dataloader, MLFF, loss_fn, optimizer, rotation=dataRotater.randomRotate, translation=dataTranslater.randomTranslate)
-        test(test_dataloader, MLFF, loss_fn, rotation=dataRotater.randomRotate)
+        if model_hyperparam.TrainConfig.augmentation == True:
+            train(train_dataloader, MLFF, loss_fn, optimizer, rotation=dataRotater.randomRotate, translation=dataTranslater.randomTranslate)
+            test(test_dataloader, MLFF, loss_fn, rotation=dataRotater.randomRotate, translation=dataTranslater.randomTranslate)
+        else:
+            train(train_dataloader, MLFF, loss_fn, optimizer, rotation=None, translation=None)
+            test(test_dataloader, MLFF, loss_fn, rotation=None, translation=None)
+        
         if ((t+1) % 20 == 0):
             print("Saving the model...")
             saveString = model_hyperparam.ModelPaths.savedModelName or f"MLFF_dev{device}_saved.pth"

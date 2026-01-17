@@ -39,4 +39,5 @@ class TrainConfig:
     optimizer: Type[torch.optim.Optimizer] = torch.optim.Adam
     lr: float = 5e-5 # set learning rate
     exact_reproducibility: bool = False # makes training deterministic at performance cost
+    augmentation: bool = False # set to True if you want training to be done with data augmentation (rotation and translation)
     
