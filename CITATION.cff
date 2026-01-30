@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+title: "ADAPT: Lightweight, Long-Range Machine Learning Force Fields Without Graphs"
+message: "If you use this software, please cite the following paper."
+authors:
+  - family-names: Dramko
+    given-names: Evan
+  - family-names: Xiong
+    given-names: Yihuang
+  - family-names: Zhu
+    given-names: Yizhi
+  - family-names: Hautier
+    given-names: Geoffroy
+  - family-names: Reps
+    given-names: Thomas
+  - family-names: Jermaine
+    given-names: Christopher
+  - family-names: Kyrillidis
+    given-names: Anastasios
+type: article
+year: 2025
+journal: "arXiv"
+identifiers:
+  - type: arxiv
+    value: "2509.24115"
+

@@ -1,0 +1,2 @@
+# Outside References
+ADAPT utilizes a standard Transformer encoder architecture, followed by a linear downscaling. Architectural and mathematics details are available in the following two files: [attention](https://evandramko.github.io/files/attention.pdf) and [encoder](https://evandramko.github.io/files/transformer.pdf) . A conceptual video (not by the authors of ADAPT) explaining Attention and Transformers (both Encoders and Decoders) is available [here](https://www.youtube.com/watch?v=LPZh9BOjkQs&list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi&index=6). 
