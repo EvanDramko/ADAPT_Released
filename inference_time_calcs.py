@@ -19,7 +19,7 @@ class Runner:
             config = force_model_hyperparam.ModelConfig() 
             _require(force_model_hyperparam.ModelPaths.pretrainPath != None, "Must have a saved model to use at inference time for the force predictor")
             self.force_model = encoderBase.TransformerEncoder(d_model=config.d_model, d_ff=config.d_ff, num_layers=config.num_layers, d_out=config.d_out, dropout_rate=config.dropout_rate, num_heads=config.num_heads).to(self.device)
-            self.force_model.load_state_dict(torch.load(force_model_hyperparam.ModelPaths.pretrainPath, map_location=torch.device(self.device), weights_only=True))
+            self.force_model.load_state_dict(torch.load(force_model_hyperparam.ModelPaths.pretrainPath, map_location=torch.device(self.device)))
             self.force_model.eval()
 
         if use_energy:
@@ -122,6 +122,8 @@ class Runner:
         return unnormedForces
 
 
+
+# A NEW AND FAR IMPROVED VERSION OF THIS LOOPING IS BEING ADDED SOON!
 # def loop2Convergence(structure, getForces = model, step=0.05, annealFactor=0.99, momemWeight=0.00, threshold=0.001, maxSteps = 75, saveFrames = None): 
 #     """
 #     Takes a given structure and a force/gradient predictor, then performs atom-level gradient descent until convergence. 

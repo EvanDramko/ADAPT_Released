@@ -33,7 +33,7 @@ In "Y" we expect a torch tensor of shape (n, 3) where we have n atoms and a set 
 # A small sample dataset is included in GitHub. The full Si Defect dataset is available on Zenodo
 import torch
 
-D_mini = torch.load("./data/miniDataset.pt")
+D_mini = torch.load("./data/mini_force_dataset/trainset.pt")
 X = D_mini["X"]
 Y = D_mini["Y"]
 print("Type of D_mini is: ", type(D_mini))
