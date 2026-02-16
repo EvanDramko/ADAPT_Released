@@ -30,7 +30,7 @@ class ModelConfig:
 @dataclass(frozen=True)
 class ModelPaths:
     pretrainPath: Optional[Path] = Path("./saved_models/energy_baseline.pth") # load a saved pretrained model. Use None keyword if training from scratch
-    stats_path: Optional[Path] = Path("./utils/norm_stats.pt") # needed for inference time, but training time can make the file if it is not available
+    stats_path: Path = Path("./utils/norm_stats.pt") # needed for inference time, but training time can make the file if it is not available
     savedModelName: Optional[str] = None # alternative model name or path to save the weights of the new model (should end in .pt or pth)
     savedBestName: Optional[str] = None # alternative name/path to save the version that performed best on the validation/test set
 

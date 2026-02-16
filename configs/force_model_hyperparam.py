@@ -28,7 +28,7 @@ class DataConfig:
 @dataclass(frozen=True)
 class ModelPaths:
     pretrainPath: Optional[Path] = Path("./saved_models/force_baseline.pth") # load is saved pretrained model
-    stats_path: Optional[Path] = Path("./utils/norm_stats.pt")
+    stats_path: Path = Path("./utils/norm_stats.pt")
     saveBase: str = "./"
     savedModelName: Optional[str] = None # where to save the weights of the new model (should end in .pt or pth)
 
