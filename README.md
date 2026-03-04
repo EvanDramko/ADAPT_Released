@@ -44,9 +44,7 @@ python adapt_cli.py eval --path data/training_data.xyz --all-frames --is-crystal
 ## Tutorials
 
 1. [Installation]()--Pip installable version coming soon!
-2. [ADAPT Architecture](tutorials/architecture.md)
-3. [Training a model](tutorials/training.md)
-4. [Deplyment and Inference Time](tutorials/inference.md)
+2. [ADAPT Architecture](https://evandramko.github.io/files/transformer.pdf)
 
 
 ## Citation
