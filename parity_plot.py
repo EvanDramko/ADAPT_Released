@@ -1,3 +1,5 @@
+# codex generated with minimal oversight!
+
 from __future__ import annotations
 import argparse
 from pathlib import Path
@@ -64,6 +66,15 @@ def _flatten_for_parity(pred_list: list[torch.Tensor], targ_list: list[torch.Ten
     return pred, targ
 
 
+def _flatten_force_norms(
+    pred_list: list[torch.Tensor],
+    targ_list: list[torch.Tensor],
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    pred = torch.cat([torch.norm(p, dim=-1).reshape(-1) for p in pred_list], dim=0)
+    targ = torch.cat([torch.norm(t, dim=-1).reshape(-1) for t in targ_list], dim=0)
+    return pred, targ
+
+
 def _metrics(pred: torch.Tensor, targ: torch.Tensor) -> Tuple[float, float, float]:
     diff = pred - targ
     mae = float(diff.abs().mean().item())
@@ -106,7 +117,7 @@ def _make_plot(
     pad = 0.03 * (hi - lo + 1e-12)
 
     fig, ax = plt.subplots(figsize=(7, 7), dpi=160)
-    ax.scatter(targ_plot.numpy(), pred_plot.numpy(), s=6, alpha=0.25, edgecolors="none")
+    ax.scatter(targ_plot.numpy(), pred_plot.numpy(), s=6, alpha=0.25, color="#FF1F1F", edgecolors="none")
     ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], "k--", linewidth=1)
     ax.set_xlim(lo - pad, hi + pad)
     ax.set_ylim(lo - pad, hi + pad)
@@ -173,16 +184,24 @@ def main() -> None:
 
     pred, targ = _flatten_for_parity(pred_list, targ_list)
     mae, rmse, r2 = _metrics(pred, targ)
+    pred_norm, targ_norm = _flatten_force_norms(pred_list, targ_list)
+    mae_norm, rmse_norm, r2_norm = _metrics(pred_norm, targ_norm)
 
     out = Path(args.output)
     out.parent.mkdir(parents=True, exist_ok=True)
+    norm_out = out.with_name(f"{out.stem}_norms{out.suffix}")
 
     title = f"Force Parity\nMAE={mae:.6f}  RMSE={rmse:.6f}  R²={r2:.6f}"
     _make_plot(pred, targ, str(out), title=title, max_points=args.max_points)
+    norm_title = f"Force Norm Parity\nMAE={mae_norm:.6f}  RMSE={rmse_norm:.6f}  R²={r2_norm:.6f}"
+    _make_plot(pred_norm, targ_norm, str(norm_out), title=norm_title, max_points=args.max_points)
 
     print(f"Saved parity plot to: {out}")
+    print(f"Saved force-norm parity plot to: {norm_out}")
     print(f"Points (all dims flattened): {pred.numel()}")
     print(f"MAE={mae:.8f} RMSE={rmse:.8f} R2={r2:.8f}")
+    print(f"Force-norm points: {pred_norm.numel()}")
+    print(f"Norm MAE={mae_norm:.8f} Norm RMSE={rmse_norm:.8f} Norm R2={r2_norm:.8f}")
 
 
 if __name__ == "__main__":

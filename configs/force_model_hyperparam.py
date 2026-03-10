@@ -17,7 +17,7 @@ class ModelConfig:
 @dataclass(frozen=True)
 class DataConfig:
     train_path: str = "./data/training_data.xyz"
-    test_path: str = None # change to a different set in practice!
+    test_path: str = None
     has_Z: bool = True # check as True if element 4 (index 3) is the atomic number. Otherwise, it is assumed indices 3, 4 are column and row of periodic table
     batch_size: int = 32
     num_workers: int = 4 # used in the dataloader... only change if necessary. 
@@ -36,6 +36,7 @@ class ModelPaths:
 @dataclass(frozen=True)
 class TrainConfig:
     epochs: int = 80
+    recompute_stats: bool = False
     alt_loss_fxn: Optional[Callable[[float, float], float]] = None # defaults to regular mse
     optimizer: Type[torch.optim.Optimizer] = torch.optim.Adam
     lr: float = 5e-5 # set learning rate

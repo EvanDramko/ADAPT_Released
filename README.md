@@ -3,9 +3,11 @@ This repository contains the necessary code for training or conducting inference
 
 ADAPT supports CLI runtimes for training and evaluation through `adapt_cli.py`, and also exposes Python APIs for custom workflows. 
 
+The data samples included in the tiny_sample folder come from the OMol25 dataset released with Levine, Daniel S., et al. "The open molecules 2025 (omol25) dataset, evaluations, and models." arXiv preprint arXiv:2505.08762 (2025).
+
 ## Release Notes
 
-### v0.3.0 – Major Refactor
+### v0.3.1 – Major Refactor
 
 This release introduces a significant redesign of the codebase. Several behaviors have changed compared to previous versions.
 
@@ -20,26 +22,44 @@ This release introduces a significant redesign of the codebase. Several behavior
 - Energy prediction support (temporarily).
 
 #### Planned
-- Multi-GPU training support (currently limited to single-GPU).
 - Reintroduction of energy prediction in a future release.
+- Multi-GPU training support (currently limited to single-GPU).
+
 
 ## Command Line Usage
 
-You can run training and evaluation directly from the command line without editing config files:
+You can run training and evaluation directly from the command line without editing config files. Any CLI argument you omit falls back to the corresponding value in the config file.
 
 ```bash
 # Train
 python adapt_cli.py train --train-path data/training_data.xyz --test-path data/training_data.xyz --is-crystal
 
-# Train and force fresh normalization statistics (overwrite existing norm_stats)
-python adapt_cli.py train --train-path data/training_data.xyz --test-path data/test_100_set.xyz --is-crystal --recompute-stats
+# Train using a specific pretrained baseline
+python adapt_cli.py train --train-path data/training_data.xyz --baseline-model saved_models/test_model.pth
 
 # Evaluate one frame
-python adapt_cli.py eval --path data/training_data.xyz --frame-idx 0 --is-crystal
+python adapt_cli.py eval --path data/training_data.xyz --frame-idx 0
 
-# Evaluate all frames
-python adapt_cli.py eval --path data/training_data.xyz --all-frames --is-crystal
+# Evaluate all frames (default when --frame-idx is omitted)
+python adapt_cli.py eval --path data/training_data.xyz
+
+# Evaluate with a specific checkpoint
+python adapt_cli.py eval --path data/training_data.xyz --model-path saved_models/test_model.pth
 ```
+
+### CLI Notes
+
+- `train --train-path`: if omitted, uses `DataConfig.train_path`.
+- `train --test-path`: if omitted, uses `DataConfig.test_path`; if that is `None`, training runs without evaluation.
+- `train --baseline-model`: overrides `ModelPaths.pretrainPath` for loading a starting checkpoint.
+- `train --device`: if omitted, uses `TrainConfig.device`.
+- `train --augmentation/--no-augmentation`: overrides `TrainConfig.augmentation`.
+- `train --is-crystal/--no-is-crystal`: overrides `DataConfig.isCrystal`.
+- `eval --path`: if omitted, uses `DataConfig.test_path`.
+- `eval --frame-idx`: if omitted, evaluation runs on all frames in the file.
+- `eval --model-path`: overrides `ModelPaths.pretrainPath` for evaluation.
+- `eval --device`: if omitted, uses `TrainConfig.device`.
+- `eval --is-crystal/--no-is-crystal`: overrides `DataConfig.isCrystal`.
 
 ## Tutorials
 

@@ -1,10 +1,15 @@
 import argparse
 
-from configs import force_model_hyperparam
 from inference_time_calcs import run_evaluation
 from trainForce import run_training
 
-# python adapt_cli.py train --epochs 100 --train-path ./data/my_train.xyz --test-path None --recompute-stats
+# python adapt_cli.py train --epochs 100 --train-path ./data/my_train.xyz --test-path None
+
+
+def _normalize_optional_str(value):
+    if isinstance(value, str) and value.strip().lower() in {"none", ""}:
+        return None
+    return value
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
@@ -15,70 +20,70 @@ def _build_parser() -> argparse.ArgumentParser:
     train_p = subparsers.add_parser("train", help="Train force model")
     train_p.add_argument(
         "--train-path",
-        default=force_model_hyperparam.DataConfig.train_path,
-        help="Path to training xyz/extxyz (or pre-converted .pt)",
+        default=None,
+        help="Path to training xyz/extxyz (or pre-converted .pt). If omitted, uses DataConfig.train_path.",
     )
     train_p.add_argument(
         "--test-path",
         default=None,
-        help="Optional path to test xyz/extxyz (or pre-converted .pt). If omitted, training runs without evaluation.",
+        help="Optional path to test xyz/extxyz (or pre-converted .pt). If omitted, uses DataConfig.test_path; if that is None, training runs without evaluation.",
     )
     train_p.add_argument(
         "--is-crystal",
         action=argparse.BooleanOptionalAction,
-        default=force_model_hyperparam.DataConfig.isCrystal,
-        help="True for crystal, false for molecules. Crystals require Lattice and pbc in headers",
+        default=None,
+        help="True for crystal, false for molecules. Crystals require Lattice and pbc in headers. Defaults to DataConfig.isCrystal (set to False at release).",
     )
     train_p.add_argument(
         "--epochs",
         type=int,
-        default=80,
-        help="Override number of training epochs",
-    )
-    train_p.add_argument(
-        "--recompute-stats",
-        action=argparse.BooleanOptionalAction,
-        default=False,
-        help="Recompute normalization stats from the current training dataset and overwrite stats file",
+        default=None,
+        help="Override number of training epochs. Defaults to TrainConfig.epochs",
     )
     train_p.add_argument(
         "--device",
         default=None,
-        help="Override compute device for training (e.g. cpu, cuda, mps)",
+        help="Override compute device for training (e.g. cpu, cuda, mps). Single gpu support only for now! If omitted, uses TrainConfig.device.",
+    )
+    train_p.add_argument(
+        "--baseline-model",
+        default=None,
+        help="Optional input path/name for pretrained model weights; overrides ModelPaths.pretrainPath when provided.",
     )
     train_p.add_argument(
         "--augmentation",
-        default=False,
-        help="Override data augmentation usage for training",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Override data augmentation usage for training. Defaults to TrainConfig.augmentation (set to False at release).",
     )
 
     eval_p = subparsers.add_parser("eval", help="Evaluate saved model on xyz/extxyz")
     eval_p.add_argument(
         "--path",
-        default=force_model_hyperparam.DataConfig.test_path,
-        help="Path to xyz/extxyz file with REF_forces:R:3 labels",
+        default=None,
+        help="Path to xyz/extxyz file with REF_forces:R:3 labels. If omitted, uses DataConfig.test_path.",
     )
     eval_p.add_argument(
         "--frame-idx",
         type=int,
-        default=0,
-        help="Frame index to evaluate when --all-frames is not set",
-    )
-    eval_p.add_argument(
-        "--all-frames",
-        action="store_true",
-        help="Evaluate all frames and report aggregate MSE/MAE",
+        default=None,
+        help="Frame index to evaluate. If omitted, evaluate all frames.",
     )
     eval_p.add_argument(
         "--is-crystal",
         action=argparse.BooleanOptionalAction,
-        default=force_model_hyperparam.DataConfig.isCrystal,
-        help="Require Lattice and pbc in headers",
+        default=None,
+        help="Require Lattice and pbc in headers. Defaults to DataConfig.isCrystal (set to False at release).",
     )
     eval_p.add_argument(
         "--device",
         default=None,
-        help="Override compute device for evaluation (e.g. cpu, cuda, mps)",
+        help="Override compute device for evaluation (e.g. cpu, cuda, mps). If omitted, uses TrainConfig.device.",
+    )
+    eval_p.add_argument(
+        "--model-path",
+        default=None,
+        help="Optional input path/name for model weights; overrides ModelPaths.pretrainPath when provided.",
     )
 
     return parser
@@ -89,24 +94,33 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.mode == "train":
+        normalized_train_path = _normalize_optional_str(args.train_path)
+        normalized_test_path = _normalize_optional_str(args.test_path)
+        normalized_baseline_model = _normalize_optional_str(args.baseline_model)
+        normalized_device = _normalize_optional_str(args.device)
         run_training(
-            train_path=args.train_path,
-            test_path=args.test_path,
+            train_path=normalized_train_path,
+            test_path=normalized_test_path,
             is_crystal=args.is_crystal,
             epochs=args.epochs,
-            recompute_stats=args.recompute_stats,
-            device=args.device,
+            device=normalized_device,
+            baseline_model=normalized_baseline_model,
             augmentation=args.augmentation,
         )
         return
 
     if args.mode == "eval":
+        normalized_path = _normalize_optional_str(args.path)
+        normalized_model_path = _normalize_optional_str(args.model_path)
+        normalized_device = _normalize_optional_str(args.device)
+
         run_evaluation(
-            xyz_path=args.path,
+            xyz_path=normalized_path,
             frame_idx=args.frame_idx,
-            all_frames=args.all_frames,
+            all_frames=None,
             is_crystal=args.is_crystal,
-            device=args.device,
+            device=normalized_device,
+            model_path=normalized_model_path,
         )
         return
 

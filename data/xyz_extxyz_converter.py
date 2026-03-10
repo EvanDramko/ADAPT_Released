@@ -42,6 +42,17 @@ class ConversionMeta:
     n_frames: int
 
 
+@dataclass(frozen=True)
+class FrameLayout:
+    row_width: int
+    x_dim: int
+    x_feature_names: List[str]
+    species_col: int
+    pos_start: int
+    force_start: int
+    numeric_slices: List[Tuple[int, int, int, int]]
+
+
 def _is_force_property(p: PropertySpec) -> bool:
     return (p.name.lower() in _FORCE_PROP_NAMES) and p.ptype == "R" and p.count == 3
 
@@ -59,7 +70,7 @@ def _parse_header(header_line: str) -> Dict[str, str]:
 
 def _parse_properties(properties_value: str, frame_idx: int) -> List[PropertySpec]:
     toks = properties_value.split(":")
-    # note: toks is not the "tokens" that is given to the transformer. It is just a naming collision. 
+    # note: toks is not the "tokens" that is given to the transformer, but rather the discrete sections of the header. It is just a naming collision. 
     if len(toks) % 3 != 0: # check if all values come in (name, dtype, count) tuples.
         raise ValueError(
             f"Frame {frame_idx}: malformed Properties field; expected triples name:type:count, got: {properties_value}"
@@ -94,8 +105,8 @@ def _validate_header_and_properties(
                 f"Frame {frame_idx}: missing 'pbc' in header while isCrystal=True"
             )
 
-    pos_ok = any(p.name == "pos" and p.ptype == "R" and p.count == 3 for p in props)
-    if not pos_ok:
+    # check if we have position and species listed in the header
+    if not any(p.name == "pos" and p.ptype == "R" and p.count == 3 for p in props):
         raise ValueError(
             f"Frame {frame_idx}: Properties must include pos:R:3 (required input coordinates)"
         )
@@ -123,26 +134,6 @@ def _validate_header_and_properties(
         )
 
 
-def _x_feature_names(props: Sequence[PropertySpec]) -> List[str]:
-    names: List[str] = []
-    for p in props:
-        if _is_force_property(p):
-            continue
-        if p.name == "species":
-            continue
-        if p.name == "pos" and p.ptype == "R" and p.count == 3:
-            names.extend(["pos_0", "pos_1", "pos_2", "Z"])
-            continue
-        if p.ptype not in {"R", "I"}:
-            continue
-        if p.count == 1:
-            names.append(p.name)
-        else:
-            for i in range(p.count):
-                names.append(f"{p.name}_{i}")
-    return names
-
-
 def _atomic_number_from_species(symbol: str, frame_idx: int, atom_i: int) -> float:
     z = _SYMBOL_TO_Z.get(symbol)
     if z is None:
@@ -150,6 +141,129 @@ def _atomic_number_from_species(symbol: str, frame_idx: int, atom_i: int) -> flo
             f"Frame {frame_idx}, atom {atom_i}: unknown chemical symbol '{symbol}' in species:S:1"
         )
     return float(z)
+
+
+def _build_frame_layout(props: Sequence[PropertySpec], frame_idx: int) -> FrameLayout:
+    row_width = sum(p.count for p in props)
+    species_col: Optional[int] = None
+    pos_start: Optional[int] = None
+    force_start: Optional[int] = None
+    numeric_slices: List[Tuple[int, int, int, int]] = []
+    x_feature_names: List[str] = []
+
+    token_cursor = 0
+    x_cursor = 0
+    for p in props:
+        tok_start = token_cursor
+        tok_end = token_cursor + p.count
+        token_cursor = tok_end
+
+        if _is_force_property(p):
+            force_start = tok_start
+            continue
+        if p.name == "species":
+            species_col = tok_start
+            continue
+        if p.name == "pos" and p.ptype == "R" and p.count == 3:
+            pos_start = tok_start
+            x_feature_names.extend(["pos_0", "pos_1", "pos_2", "Z"])
+            x_cursor += 4
+            continue
+        if p.ptype in {"R", "I"}:
+            x_start = x_cursor
+            x_end = x_cursor + p.count
+            numeric_slices.append((tok_start, tok_end, x_start, x_end))
+            if p.count == 1:
+                x_feature_names.append(p.name)
+            else:
+                for i in range(p.count):
+                    x_feature_names.append(f"{p.name}_{i}")
+            x_cursor = x_end
+
+    if species_col is None:
+        raise ValueError(f"Frame {frame_idx}: species:S:1 not found while building frame layout")
+    if pos_start is None:
+        raise ValueError(f"Frame {frame_idx}: pos:R:3 not found while building frame layout")
+    if force_start is None:
+        raise ValueError(f"Frame {frame_idx}: force property not found while building frame layout")
+
+    return FrameLayout(
+        row_width=row_width,
+        x_dim=x_cursor,
+        x_feature_names=x_feature_names,
+        species_col=species_col,
+        pos_start=pos_start,
+        force_start=force_start,
+        numeric_slices=numeric_slices,
+    )
+
+
+def _skip_atom_rows(handle, n_atoms: int, frame_idx: int) -> None:
+    for atom_i in range(n_atoms):
+        skipped = handle.readline()
+        if not skipped:
+            raise ValueError(
+                f"Frame {frame_idx}: unexpected EOF while skipping atom rows ({atom_i}/{n_atoms})"
+            )
+
+
+def _read_frame_tensors(
+    handle,
+    n_atoms: int,
+    frame_idx: int,
+    layout: FrameLayout,
+    dtype: torch.dtype,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    X = torch.empty((n_atoms, layout.x_dim), dtype=dtype)
+    Y = torch.empty((n_atoms, 3), dtype=dtype)
+
+    for atom_i in range(n_atoms):
+        atom_line = handle.readline()
+        if not atom_line:
+            raise ValueError(
+                f"Frame {frame_idx}: unexpected EOF while reading atom rows ({atom_i}/{n_atoms})"
+            )
+        cols = atom_line.split()
+        if len(cols) != layout.row_width:
+            raise ValueError(
+                f"Frame {frame_idx}, atom {atom_i}: expected {layout.row_width} columns from Properties, got {len(cols)}"
+            )
+
+        # pos -> x[0:3]
+        try:
+            X[atom_i, 0] = float(cols[layout.pos_start])
+            X[atom_i, 1] = float(cols[layout.pos_start + 1])
+            X[atom_i, 2] = float(cols[layout.pos_start + 2])
+        except ValueError as exc:
+            raise ValueError(
+                f"Frame {frame_idx}, atom {atom_i}: property 'pos' contains non-numeric value"
+            ) from exc
+
+        # species -> x[3] = atomic number
+        species_symbol = cols[layout.species_col]
+        X[atom_i, 3] = _atomic_number_from_species(species_symbol, frame_idx, atom_i)
+
+        # all other numeric properties
+        for tok_start, tok_end, x_start, x_end in layout.numeric_slices:
+            for j, tok_i in enumerate(range(tok_start, tok_end)):
+                try:
+                    X[atom_i, x_start + j] = float(cols[tok_i])
+                except ValueError as exc:
+                    raise ValueError(
+                        f"Frame {frame_idx}, atom {atom_i}: non-numeric value in numeric property columns"
+                    ) from exc
+
+        # force -> Y
+        try:
+            Y[atom_i, 0] = float(cols[layout.force_start])
+            Y[atom_i, 1] = float(cols[layout.force_start + 1])
+            Y[atom_i, 2] = float(cols[layout.force_start + 2])
+        except ValueError as exc:
+            raise ValueError(
+                f"Frame {frame_idx}, atom {atom_i}: force property contains non-numeric value"
+            ) from exc
+
+    return X, Y
 
 
 def load_ragged_from_xyz_extxyz(
@@ -215,8 +329,9 @@ def load_ragged_from_xyz_extxyz(
                 is_crystal=is_crystal,
             )
 
-            feature_names = _x_feature_names(props)
-            x_dim = len(feature_names)
+            layout = _build_frame_layout(props, frame_idx=frame_idx)
+            feature_names = layout.x_feature_names
+            x_dim = layout.x_dim
             if expected_x_dim is None:
                 expected_x_dim = x_dim
                 expected_feature_names = feature_names
@@ -225,74 +340,7 @@ def load_ragged_from_xyz_extxyz(
                     f"Frame {frame_idx}: inconsistent X dimension ({x_dim}) vs first frame ({expected_x_dim})"
                 )
 
-            row_width = sum(p.count for p in props)
-            x_rows: List[List[float]] = []
-            y_rows: List[List[float]] = []
-
-            for atom_i in range(n_atoms):
-                atom_line = f.readline()
-                if not atom_line:
-                    raise ValueError(
-                        f"Frame {frame_idx}: unexpected EOF while reading atom rows ({atom_i}/{n_atoms})"
-                    )
-                cols = atom_line.split()
-                if len(cols) != row_width:
-                    raise ValueError(
-                        f"Frame {frame_idx}, atom {atom_i}: expected {row_width} columns from Properties, got {len(cols)}"
-                    )
-
-                cursor = 0
-                x_row: List[float] = []
-                y_row: Optional[List[float]] = None
-                species_symbol: Optional[str] = None
-
-                for p in props:
-                    values = cols[cursor : cursor + p.count]
-                    cursor += p.count
-
-                    if _is_force_property(p):
-                        try:
-                            y_row = [float(v) for v in values]
-                        except ValueError as exc:
-                            raise ValueError(
-                                f"Frame {frame_idx}, atom {atom_i}: force property contains non-numeric value"
-                            ) from exc
-                        continue
-                    if p.name == "species":
-                        species_symbol = values[0]
-                        continue
-                    if p.name == "pos" and p.ptype == "R" and p.count == 3:
-                        try:
-                            x_row.extend(float(v) for v in values)
-                        except ValueError as exc:
-                            raise ValueError(
-                                f"Frame {frame_idx}, atom {atom_i}: property 'pos' contains non-numeric value"
-                            ) from exc
-                        if species_symbol is None:
-                            raise ValueError(
-                                f"Frame {frame_idx}, atom {atom_i}: species:S:1 must appear before pos:R:3 so Z can be inserted as the fourth feature"
-                            )
-                        x_row.append(_atomic_number_from_species(species_symbol, frame_idx, atom_i))
-                        continue
-
-                    if p.ptype in {"R", "I"}:
-                        try:
-                            x_row.extend(float(v) for v in values)
-                        except ValueError as exc:
-                            raise ValueError(
-                                f"Frame {frame_idx}, atom {atom_i}: property '{p.name}' contains non-numeric value"
-                            ) from exc
-
-                if y_row is None or len(y_row) != 3:
-                    raise ValueError(
-                        f"Frame {frame_idx}, atom {atom_i}: failed to parse REF_forces:R:3"
-                    )
-
-                x_rows.append(x_row)
-                y_rows.append(y_row)
-
-            X = torch.tensor(x_rows, dtype=dtype)
-            Y = torch.tensor(y_rows, dtype=dtype)
+            X, Y = _read_frame_tensors(f, n_atoms=n_atoms, frame_idx=frame_idx, layout=layout, dtype=dtype)
             X_list.append(X)
             Y_list.append(Y)
             frame_idx += 1
@@ -368,72 +416,18 @@ def load_one_frame_from_xyz_extxyz(
                 is_crystal=is_crystal,
             )
 
+            layout = _build_frame_layout(props, frame_idx=current_idx)
+
             if current_idx != frame_idx:
-                for atom_i in range(n_atoms):
-                    skipped = f.readline()
-                    if not skipped:
-                        raise ValueError(
-                            f"Frame {current_idx}: unexpected EOF while skipping atom rows ({atom_i}/{n_atoms})"
-                        )
+                _skip_atom_rows(f, n_atoms=n_atoms, frame_idx=current_idx)
                 current_idx += 1
                 continue
 
-            row_width = sum(p.count for p in props)
-            x_rows: List[List[float]] = []
-            y_rows: List[List[float]] = []
-
-            for atom_i in range(n_atoms):
-                atom_line = f.readline()
-                if not atom_line:
-                    raise ValueError(
-                        f"Frame {current_idx}: unexpected EOF while reading atom rows ({atom_i}/{n_atoms})"
-                    )
-                cols = atom_line.split()
-                if len(cols) != row_width:
-                    raise ValueError(
-                        f"Frame {current_idx}, atom {atom_i}: expected {row_width} columns from Properties, got {len(cols)}"
-                    )
-
-                cursor = 0
-                x_row: List[float] = []
-                y_row: Optional[List[float]] = None
-                species_symbol: Optional[str] = None
-
-                for p in props:
-                    values = cols[cursor : cursor + p.count]
-                    cursor += p.count
-
-                    if _is_force_property(p):
-                        y_row = [float(v) for v in values]
-                        continue
-                    if p.name == "species":
-                        species_symbol = values[0]
-                        continue
-                    if p.name == "pos" and p.ptype == "R" and p.count == 3:
-                        x_row.extend(float(v) for v in values)
-                        if species_symbol is None:
-                            raise ValueError(
-                                f"Frame {current_idx}, atom {atom_i}: species:S:1 must appear before pos:R:3 so Z can be inserted as the fourth feature"
-                            )
-                        x_row.append(_atomic_number_from_species(species_symbol, current_idx, atom_i))
-                        continue
-                    if p.ptype in {"R", "I"}:
-                        x_row.extend(float(v) for v in values)
-
-                if y_row is None or len(y_row) != 3:
-                    raise ValueError(
-                        f"Frame {current_idx}, atom {atom_i}: failed to parse REF_forces:R:3"
-                    )
-
-                x_rows.append(x_row)
-                y_rows.append(y_row)
-
-            X = torch.tensor(x_rows, dtype=dtype)
-            Y = torch.tensor(y_rows, dtype=dtype)
-            feature_names = _x_feature_names(props)
+            X, Y = _read_frame_tensors(f, n_atoms=n_atoms, frame_idx=current_idx, layout=layout, dtype=dtype)
+            feature_names = layout.x_feature_names
             meta = ConversionMeta(
                 x_feature_names=feature_names,
-                x_dim=len(feature_names),
+                x_dim=layout.x_dim,
                 n_frames=1,
             )
             return X, Y, meta

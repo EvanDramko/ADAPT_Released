@@ -17,8 +17,8 @@ def run_training(
     test_path: Optional[str] = None,
     is_crystal: Optional[bool] = None,
     epochs: Optional[int] = None,
-    recompute_stats: bool = False,
     device: Optional[str] = None,
+    baseline_model: Optional[str] = None,
     augmentation: Optional[bool] = None,
 ) -> None:
     # Set device
@@ -27,7 +27,7 @@ def run_training(
 
     # ========== DETERMINISTIC TRAINING SETTING ==========
     if model_hyperparam.TrainConfig.exact_reproducibility:
-        warnings.warn("Exact reproducability will hurt model runtime performance")
+        warnings.warn("Exact reproducability may hurt model runtime performance!")
         torch.manual_seed(42)
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
@@ -62,9 +62,10 @@ def run_training(
     print(MLFF)
     print()
     # Check if the pretrainPath exists
-    if (model_hyperparam.ModelPaths.pretrainPath != None):
-        MLFF.load_state_dict(torch.load(model_hyperparam.ModelPaths.pretrainPath, map_location=torch.device(device), weights_only=True))
-        print(f"Successfully loaded pretrained model from: {model_hyperparam.ModelPaths.pretrainPath}")
+    pretrained_model = baseline_model if baseline_model is not None else model_hyperparam.ModelPaths.pretrainPath
+    if (pretrained_model != None):
+        MLFF.load_state_dict(torch.load(pretrained_model, map_location=torch.device(device), weights_only=True))
+        print(f"Successfully loaded pretrained model from: {pretrained_model}")
     else:
         print("No pretrained path provided. Starting with a randomly initialized model.")
 
@@ -72,13 +73,21 @@ def run_training(
     # set hyperparameters:
     batch_size = model_hyperparam.DataConfig.batch_size
     train_path_in = train_path if train_path is not None else model_hyperparam.DataConfig.train_path
-    test_path_in = test_path
+    test_path_in = test_path if test_path is not None else model_hyperparam.DataConfig.test_path
     is_crystal_in = is_crystal if is_crystal is not None else model_hyperparam.DataConfig.isCrystal
+
+    if train_path_in is None:
+        raise ValueError("Training path is required (pass --train-path or set DataConfig.train_path).")
     #=========================================================================================================================================
     #============================================================= Data Handling =============================================================
     #=========================================================================================================================================
     train_path = prepare_ragged_dataset_path(train_path_in, is_crystal_in)
     test_path = prepare_ragged_dataset_path(test_path_in, is_crystal_in) if test_path_in is not None else None
+    print(f"Resolved training dataset path: {train_path}")
+    if test_path is not None:
+        print(f"Resolved test dataset path: {test_path}")
+    else:
+        print("No test dataset path provided; training will run without evaluation.")
 
     # construct datasets
     train_ds = RaggedAtomDataset(from_path=train_path, is_crystal=is_crystal_in)
@@ -103,8 +112,7 @@ def run_training(
         if train_x_dim != test_x_dim:
             raise ValueError(
                 f"Train/test feature mismatch: train has x_dim={train_x_dim}, test has x_dim={test_x_dim}. "
-                f"Use datasets with the same Properties layout (same atom vector width). "
-                f"Example: data/training_data.xyz has 12 features, while data/test_100_set.xyz has 3."
+                f"Use datasets with the same Properties layout (same atom vector length). "
             )
         print(f"Data layout: train_x_dim={train_x_dim}, test_x_dim={test_x_dim}")
     else:
@@ -113,12 +121,13 @@ def run_training(
     loss_fn = torch.nn.MSELoss()
     if model_hyperparam.TrainConfig.alt_loss_fxn:
         loss_fn = model_hyperparam.TrainConfig.alt_loss_fxn
+        print("Training proceeding with alternate loss function!")
 
     # load or extend normalization stats
     stats_path = model_hyperparam.ModelPaths.stats_path
     required_keys = {"x_mean", "x_std", "y_mean_force", "y_std_force"}
 
-    if recompute_stats:
+    if model_hyperparam.TrainConfig.recompute_stats:
         warnings.warn(
             f"Recomputing normalization stats from scratch on the training split and overwriting {stats_path}."
         )
@@ -206,9 +215,8 @@ def run_training(
     # Set training and optimization parameters
     epochs_count = epochs if epochs is not None else model_hyperparam.TrainConfig.epochs
     optimizer = model_hyperparam.TrainConfig.optimizer(MLFF.parameters(), lr=model_hyperparam.TrainConfig.lr)
-    useAug = model_hyperparam.TrainConfig.augmentation
-    if augmentation is not None:
-        useAug = augmentation
+    useAug = augmentation if augmentation is not None else model_hyperparam.TrainConfig.augmentation
+    saveString = model_hyperparam.ModelPaths.savedModelName or f"finetunedADAPT_{device}_saved.pth"
     
     train_scores = []
     test_scores = []
@@ -233,7 +241,6 @@ def run_training(
         
         if ((t+1) % 20 == 0):
             print("Saving the model...")
-            saveString = model_hyperparam.ModelPaths.savedModelName or f"MLFF_dev{device}_saved.pth"
             torch.save(MLFF.state_dict(), saveString)
             print("Model saved!")
 
@@ -246,7 +253,6 @@ def run_training(
     print("Done With Training!")
 
     print("Saving the model...")
-    saveString = model_hyperparam.ModelPaths.savedModelName or f"MLFF_dev{device}_saved.pth"
     torch.save(MLFF.state_dict(), saveString)
     print("Model saved -- All Done!")
 

@@ -79,7 +79,7 @@ class TransformerEncoder(nn.Module):
         # add linear layer to project into target output space
         self.output_linear = nn.Linear(d_model, d_out)
 
-    def forward(self, src, src_mask=None, src_key_padding_mask=None, return2ndlast=False):
+    def forward(self, src, src_mask=None, src_key_padding_mask=None):
         """
         Args:
             src (Tensor): Input sequence (batch_size, seq_length, d_model).
@@ -99,9 +99,6 @@ class TransformerEncoder(nn.Module):
         for layer in self.layers:
             output = layer(output, src_mask=src_mask, src_key_padding_mask=src_key_padding_mask)
         output = self.norm(output)
-        if(return2ndlast):
-            outputLin = self.output_linear(output)
-            return outputLin, output
         output = self.output_linear(output)
         return output
 

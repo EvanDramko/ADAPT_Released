@@ -11,15 +11,30 @@ def _require(cond: bool, msg: str, exc=ValueError):
     if not cond:
         raise exc(msg)
 
+
+def _devices_match(lhs: torch.device, rhs: torch.device) -> bool:
+    """
+    Treat backend-equivalent devices as the same runtime target.
+    For example, torch can report MPS as either `mps` or `mps:0`.
+    """
+    lhs = torch.device(lhs)
+    rhs = torch.device(rhs)
+    if lhs.type != rhs.type:
+        return False
+    if lhs.type in {"cpu", "mps"}:
+        return True
+    return lhs.index == rhs.index
+
 class Runner:
-    def __init__(self, use_force = True, device: Optional[str] = None):
+    def __init__(self, use_force = True, device: Optional[str] = None, model_path: Optional[str] = None):
         resolved_device = device if device is not None else force_model_hyperparam.TrainConfig.device
         self.device = torch.device(resolved_device)
 
         # load models
         if use_force:
             config = force_model_hyperparam.ModelConfig() 
-            _require(force_model_hyperparam.ModelPaths.pretrainPath != None, "Must have a saved model to use at inference time for the force predictor")
+            resolved_model_path = model_path if model_path is not None else force_model_hyperparam.ModelPaths.pretrainPath
+            _require(resolved_model_path != None, "Must have a saved model to use at inference time for the force predictor!")
             self.force_model = encoderBase.TransformerEncoder(
                 d_model=config.d_model,
                 d_ff=config.d_ff,
@@ -29,21 +44,21 @@ class Runner:
                 num_heads=config.num_heads,
                 vecRepLength=force_model_hyperparam.DataConfig.atom_vec_length,
             ).to(self.device)
-            self.force_model.load_state_dict(torch.load(force_model_hyperparam.ModelPaths.pretrainPath, map_location=torch.device(self.device)))
+            self.force_model.load_state_dict(torch.load(resolved_model_path, map_location=torch.device(self.device)))
+            self.force_model.to(self.device)
             self.force_model.eval()
         else:
             raise NotImplementedError("Code Release is only setup for force predictions at this time! Energy coming soon!")
 
         # load data shape information
-        self.max_atoms = None
         self.atom_feature_length = force_model_hyperparam.DataConfig.atom_vec_length
         
         # load normalizaton stats
         stats = torch.load(force_model_hyperparam.ModelPaths.stats_path, map_location=self.device)
-        self.meanX = stats["x_mean"]
-        self.stdX  = stats["x_std"]
-        self.meanY_force = stats["y_mean_force"]
-        self.stdY_force = stats["y_std_force"]
+        self.meanX = stats["x_mean"].to(self.device)
+        self.stdX  = stats["x_std"].to(self.device)
+        self.meanY_force = stats["y_mean_force"].to(self.device)
+        self.stdY_force = stats["y_std_force"].to(self.device)
 
 
     @torch.inference_mode
@@ -60,9 +75,14 @@ class Runner:
         """
         _require(isinstance(rawStructure, torch.Tensor), "rawStructure should be a torch tensor")
         _require(rawStructure.ndim == 3, f"You must have three dimensional input (B batch, n atoms, v feature descriptors). You have {rawStructure.ndim} input dimensions.")
-        _require(self.device == next(self.force_model.parameters()).device, f"model is not on the same device ({next(self.force_model.parameters()).device}) as the Runner class ({self.device})", exc=RuntimeError)
-        if(self.device == "cpu"): # checks if Runner object is on cpu or gpu
-            warnings.warn("CPU runtimes may be lengthy. Typically, gpu accelerated runtimes are recommended.")
+        model_device = next(self.force_model.parameters()).device
+        _require(
+            _devices_match(self.device, model_device),
+            f"model is not on the same device ({model_device}) as the Runner class ({self.device})",
+            exc=RuntimeError,
+        )
+        if self.device.type == "cpu":
+            warnings.warn("CPU runtimes may be lengthy in quantity. Typically, gpu accelerated runtimes are recommended.")
 
         # Move to device and ensure model-input feature width.
         structure = rawStructure.to(torch.float32).to(self.device)
@@ -90,7 +110,7 @@ class Runner:
 
 
     @torch.inference_mode
-    def getOneStepForcesFromXYZ(self, xyz_path: str, frame_idx: int = 0, is_crystal = None):
+    def getOneStepForcesFromXYZ(self, xyz_path: str, frame_idx: int = 0, is_crystal: bool = None):
         """
         Predict force tensor (n, 3) for one structure frame read from xyz/extxyz.
         """
@@ -109,25 +129,33 @@ class Runner:
 
 @torch.inference_mode
 def run_evaluation(
-    xyz_path: str,
-    frame_idx: int = 0,
-    all_frames: bool = False,
+    xyz_path: str | None = None,
+    frame_idx: int | None = None,
+    all_frames: bool | None = None,
     is_crystal: bool | None = None,
     device: str | None = None,
+    model_path: str | None = None,
 ):
     """
     Evaluate saved force model on xyz/extxyz data that includes REF_forces:R:3 labels.
     Prints MSE/MAE summary and returns metrics dict.
 
     Args:
-        xyz_path (str): path to the xyz file
-        frame_idx (int): specific frame you want evaluated (irrelevant if all_frames=True)
-        all_frames (bool): whether to evaluate all frames or not
+        xyz_path (str | None): path to the xyz file. If None, uses DataConfig.test_path.
+        frame_idx (int | None): specific frame you want evaluated. If None and all_frames is not set, evaluates all frames.
+        all_frames (bool | None): whether to evaluate all frames. If None, inferred from frame_idx.
         is_crystal (bool): are the structures crystals or molecules
         device (str): device on which to run the evaluation (defaults to cuda -> mps -> cpu)
     """
     if is_crystal is None:
         is_crystal = force_model_hyperparam.DataConfig.isCrystal
+    if xyz_path is None:
+        xyz_path = force_model_hyperparam.DataConfig.test_path
+    _require(xyz_path is not None, "Evaluation path is required (pass --path or set DataConfig.test_path).")
+    if all_frames is None:
+        all_frames = frame_idx is None
+    if frame_idx is None:
+        frame_idx = 0
 
     if all_frames:
         X_list, Y_list, _ = load_ragged_from_xyz_extxyz(
@@ -136,7 +164,7 @@ def run_evaluation(
             dtype=torch.float32,
         )
         _require(len(X_list) > 0, f"No frames found in {xyz_path}")
-        runner = Runner(use_force=True, device=device)
+        runner = Runner(use_force=True, device=device, model_path=model_path)
         frame_ids = range(len(X_list))
     else:
         X, Y, _ = load_one_frame_from_xyz_extxyz(
@@ -145,8 +173,8 @@ def run_evaluation(
             is_crystal=bool(is_crystal),
             dtype=torch.float32,
         )
-        runner = Runner(use_force=True, device=device)
-        X_list, Y_list = [X], [Y]
+        runner = Runner(use_force=True, device=device, model_path=model_path)
+        X_list, Y_list = [X], [Y] # make dummy lists for compatability with dataset object
         frame_ids = [0]
 
     total_sq = 0.0

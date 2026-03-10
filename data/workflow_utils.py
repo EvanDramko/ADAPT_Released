@@ -10,11 +10,14 @@ def prepare_ragged_dataset_path(path: str, is_crystal: bool) -> str:
     If `path` is xyz/extxyz, convert to cached `*.ragged.pt` and return that path.
     Otherwise return the original path unchanged.
     """
-    suffix = Path(path).suffix.lower()
+    src = Path(path).expanduser()
+    suffix = src.suffix.lower()
     if suffix not in {".xyz", ".extxyz"}:
-        return path
+        return str(src)
 
-    src = Path(path)
+    if not src.exists():
+        raise FileNotFoundError(f"Could not find XYZ/EXTXYZ file: {src}")
+
     out = src.with_suffix(src.suffix + ".ragged.pt")
     needs_refresh = (not out.exists()) or (src.stat().st_mtime > out.stat().st_mtime)
     if needs_refresh:

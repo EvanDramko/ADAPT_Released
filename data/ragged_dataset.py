@@ -62,7 +62,7 @@ def collate_pad(
       X: (B, L, d_x)
       Y: (B, L, 3)
       mask: (B, L)  True for real tokens, False for padding
-    - If max_len is provided, sequences longer than max_len are TRUNCATED.
+    - If max_len is provided, sequences longer than max_len are truncated, and a warning is issued and error raised.
     - Otherwise L = max(n_i) in the batch.
     """
     Xs, Ys = zip(*batch)  # tuples of tensors (n_i, vecRep) and (n_i, 3)
@@ -77,6 +77,7 @@ def collate_pad(
                 f"Truncating sequences longer than max_len={max_len}. "
                 f"Xs truncated: {truncated_X}, Ys truncated: {truncated_Y}"
             )
+            raise ValueError("Sequence is longer than provided maximum length! There are too many atoms in an example.")
         # truncate before padding if any sequence is too long
         Xs = tuple(x[:max_len] for x in Xs)
         Ys = tuple(y[:max_len] for y in Ys)
