@@ -22,6 +22,7 @@ This release introduces a significant redesign of the codebase. Several behavior
 - Energy prediction support (temporarily).
 
 #### Planned
+- Introduction of baseline default models. 
 - Reintroduction of energy prediction in a future release.
 - Multi-GPU training support (currently limited to single-GPU).
 
