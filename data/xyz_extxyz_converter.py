@@ -50,6 +50,8 @@ class FrameLayout:
     species_col: int
     pos_start: int
     force_start: int
+    pos_cols: Tuple[int, int, int]
+    force_cols: Tuple[int, int, int]
     numeric_slices: List[Tuple[int, int, int, int]]
 
 
@@ -194,6 +196,8 @@ def _build_frame_layout(props: Sequence[PropertySpec], frame_idx: int) -> FrameL
         species_col=species_col,
         pos_start=pos_start,
         force_start=force_start,
+        pos_cols=(pos_start, pos_start + 1, pos_start + 2),
+        force_cols=(force_start, force_start + 1, force_start + 2),
         numeric_slices=numeric_slices,
     )
 
@@ -214,8 +218,16 @@ def _read_frame_tensors(
     layout: FrameLayout,
     dtype: torch.dtype,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    X = torch.empty((n_atoms, layout.x_dim), dtype=dtype)
-    Y = torch.empty((n_atoms, 3), dtype=dtype)
+    x_rows: List[List[float]] = []
+    y_rows: List[List[float]] = []
+
+    row_width = layout.row_width
+    x_dim = layout.x_dim
+    pos0, pos1, pos2 = layout.pos_cols
+    force0, force1, force2 = layout.force_cols
+    species_col = layout.species_col
+    numeric_slices = layout.numeric_slices
+    symbol_to_z = _SYMBOL_TO_Z
 
     for atom_i in range(n_atoms):
         atom_line = handle.readline()
@@ -224,45 +236,50 @@ def _read_frame_tensors(
                 f"Frame {frame_idx}: unexpected EOF while reading atom rows ({atom_i}/{n_atoms})"
             )
         cols = atom_line.split()
-        if len(cols) != layout.row_width:
+        if len(cols) != row_width:
             raise ValueError(
-                f"Frame {frame_idx}, atom {atom_i}: expected {layout.row_width} columns from Properties, got {len(cols)}"
+                f"Frame {frame_idx}, atom {atom_i}: expected {row_width} columns from Properties, got {len(cols)}"
             )
 
-        # pos -> x[0:3]
+        row_x = [0.0] * x_dim
         try:
-            X[atom_i, 0] = float(cols[layout.pos_start])
-            X[atom_i, 1] = float(cols[layout.pos_start + 1])
-            X[atom_i, 2] = float(cols[layout.pos_start + 2])
+            row_x[0] = float(cols[pos0])
+            row_x[1] = float(cols[pos1])
+            row_x[2] = float(cols[pos2])
         except ValueError as exc:
             raise ValueError(
                 f"Frame {frame_idx}, atom {atom_i}: property 'pos' contains non-numeric value"
             ) from exc
 
-        # species -> x[3] = atomic number
-        species_symbol = cols[layout.species_col]
-        X[atom_i, 3] = _atomic_number_from_species(species_symbol, frame_idx, atom_i)
+        species_symbol = cols[species_col]
+        try:
+            row_x[3] = float(symbol_to_z[species_symbol])
+        except KeyError as exc:
+            raise ValueError(
+                f"Frame {frame_idx}, atom {atom_i}: unknown chemical symbol '{species_symbol}' in species:S:1"
+            ) from exc
 
-        # all other numeric properties
         for tok_start, tok_end, x_start, x_end in layout.numeric_slices:
             for j, tok_i in enumerate(range(tok_start, tok_end)):
                 try:
-                    X[atom_i, x_start + j] = float(cols[tok_i])
+                    row_x[x_start + j] = float(cols[tok_i])
                 except ValueError as exc:
                     raise ValueError(
                         f"Frame {frame_idx}, atom {atom_i}: non-numeric value in numeric property columns"
                     ) from exc
 
-        # force -> Y
         try:
-            Y[atom_i, 0] = float(cols[layout.force_start])
-            Y[atom_i, 1] = float(cols[layout.force_start + 1])
-            Y[atom_i, 2] = float(cols[layout.force_start + 2])
+            row_y = [float(cols[force0]), float(cols[force1]), float(cols[force2])]
         except ValueError as exc:
             raise ValueError(
                 f"Frame {frame_idx}, atom {atom_i}: force property contains non-numeric value"
             ) from exc
 
+        x_rows.append(row_x)
+        y_rows.append(row_y)
+
+    X = torch.tensor(x_rows, dtype=dtype)
+    Y = torch.tensor(y_rows, dtype=dtype)
     return X, Y
 
 
@@ -338,6 +355,11 @@ def load_ragged_from_xyz_extxyz(
             elif x_dim != expected_x_dim:
                 raise ValueError(
                     f"Frame {frame_idx}: inconsistent X dimension ({x_dim}) vs first frame ({expected_x_dim})"
+                )
+            elif feature_names != expected_feature_names:
+                raise ValueError(
+                    f"Frame {frame_idx}: inconsistent feature layout vs first frame. "
+                    f"Expected {expected_feature_names}, got {feature_names}"
                 )
 
             X, Y = _read_frame_tensors(f, n_atoms=n_atoms, frame_idx=frame_idx, layout=layout, dtype=dtype)
