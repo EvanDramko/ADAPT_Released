@@ -1,0 +1,17 @@
+# Install with: python -m pip install -r requirements.txt
+# Python 3.10+ is required by the project's syntax.
+# For GPU use, install the PyTorch build appropriate for your CUDA environment
+# before installing this file. On clusters, use the provided PyTorch environment.
+# These are direct dependencies, not a version-locked reproduction environment.
+
+# Model construction, training, inference, and tensor dataset storage
+torch
+
+# Training history serialization and analysis
+numpy
+
+# Results visualizers and dataset distribution plots
+matplotlib
+
+# NotRequired used by the objective batch API (including on Python 3.11+)
+typing_extensions

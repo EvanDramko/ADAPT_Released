@@ -1,0 +1,2 @@
+"""Coordinate embedding functions."""
+
